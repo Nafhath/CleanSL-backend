@@ -5,21 +5,14 @@ router = APIRouter(prefix="/violations", tags=["Violations"])
 
 @router.get("")
 def read_violations():
-    anomalies = generate_anomalies()
-    if anomalies:
-        return anomalies
-        
-    return [
-        { "date": "22/10/2026", "type": "Mixed Waste", "resident": "Kamal Perera", "status": "Confirmed", "score": 96 },
-        { "date": "21/10/2026", "type": "Unsorted Plastics", "resident": "Nimal Fernando", "status": "Pending", "score": 88 }
-    ]
+    return generate_anomalies()
 
 @router.get("/stats/overview")
 def read_violations_stats():
     anomalies = generate_anomalies()
-    total = len(anomalies) or 156
-    pending = len([a for a in anomalies if a["status"] == "Pending"]) or 24
-    confirmed = len([a for a in anomalies if a["status"] == "Confirmed"]) or 89
+    total = len(anomalies)
+    pending = len([a for a in anomalies if a["status"] == "Pending"])
+    confirmed = len([a for a in anomalies if a["status"] == "Confirmed"])
     
     return [
         { "label": "Total Violations", "value": str(total), "trend": "+12%", "color": "text-theme-text" },

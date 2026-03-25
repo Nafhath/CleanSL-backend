@@ -62,20 +62,6 @@ def _format_truck_code(driver_id: str, explicit_code: Any = None) -> str:
     return f"TRK-{token[:4]}"
 
 
-def _fallback_payload():
-    return {
-        "activeTruck": {
-            "id": "T-01",
-            "location": "No live driver location found yet",
-            "route": [[6.9145, 79.8650], [6.9150, 79.8660], [6.9165, 79.8655], [6.9180, 79.8640]],
-        },
-        "wards": [
-            {"id": 1, "name": "Ward 07", "progress": 85, "status": "In Progress", "trucks": ["T-01", "T-02"]},
-            {"id": 2, "name": "Ward 03", "progress": 100, "status": "Completed", "trucks": ["T-04"]},
-        ],
-    }
-
-
 def _load_tracking_rows() -> list[dict[str, Any]]:
     for table_name, order_field in (("driver_locations", "updated_at"), ("driver_tracking", "timestamp")):
         rows = _safe_execute(
@@ -94,7 +80,7 @@ def list_truck_dashboard_data():
     address_rows = _safe_execute(supabase.table("addresses").select("id,street_address,zone_or_ward"))
 
     if not tracking_rows and not task_rows and not driver_rows:
-        return _fallback_payload()
+        return {"activeTruck": None, "wards": []}
 
     drivers_by_id = {str(row.get("id")): row for row in driver_rows if row.get("id")}
     profiles_by_driver_id = {str(row.get("user_id")): row for row in profile_rows if row.get("user_id")}
@@ -167,7 +153,7 @@ def list_truck_dashboard_data():
         preferred_driver_id = next(iter(tracking_by_driver))
 
     if preferred_driver_id is None:
-        return _fallback_payload()
+        return {"activeTruck": None, "wards": wards}
 
     profile = profiles_by_driver_id.get(preferred_driver_id, {})
     driver = drivers_by_id.get(preferred_driver_id, {})
@@ -201,9 +187,9 @@ def list_truck_dashboard_data():
             "driverId": preferred_driver_id,
             "driverName": driver.get("full_name") or driver.get("name") or "Driver",
             "location": location_label,
-            "route": route or _fallback_payload()["activeTruck"]["route"],
+            "route": route,
         },
-        "wards": wards or _fallback_payload()["wards"],
+        "wards": wards,
     }
 
 

@@ -13,11 +13,17 @@ def read_complaints(
 
 @router.get("/stats/overview")
 def read_complaints_stats():
+    complaints = list_complaints()
+    pending = len([item for item in complaints if item.get("status") == "pending"])
+    in_progress = len([item for item in complaints if item.get("status") in {"reviewed", "in_progress", "in-progress"}])
+    resolved = len([item for item in complaints if item.get("status") == "resolved"])
+    total = len(complaints)
+
     return [
-        {"label": 'Total', "value": 124, "trend": '+12', "color": 'text-theme-text'},
-        {"label": 'Pending', "value": 18, "trend": '-2', "color": 'text-amber-500'},
-        {"label": 'In Progress', "value": 32, "trend": '+5', "color": 'text-theme-accent'},
-        {"label": 'Resolved', "value": 74, "trend": '+24', "color": 'text-emerald-500'}
+        {"label": 'Total', "value": total, "trend": 'live', "color": 'text-theme-text'},
+        {"label": 'Pending', "value": pending, "trend": 'live', "color": 'text-amber-500'},
+        {"label": 'In Progress', "value": in_progress, "trend": 'live', "color": 'text-theme-accent'},
+        {"label": 'Resolved', "value": resolved, "trend": 'live', "color": 'text-emerald-500'}
     ]
 
 @router.get("/{complaint_id}")
