@@ -1,5 +1,6 @@
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
+from app.core.auth import require_admin_user
 from app.services.trucks import create_truck_location_update, list_truck_dashboard_data
 
 router = APIRouter(prefix="/trucks", tags=["Trucks"])
@@ -13,12 +14,12 @@ class LocationPayload(BaseModel):
     updated_at: str | None = None
 
 @router.get("")
-def read_trucks():
+def read_trucks(_admin=Depends(require_admin_user)):
     return list_truck_dashboard_data()
 
 @router.patch("/{truck_id}/location")
 @router.post("/{truck_id}/location")
-def update_truck_location(truck_id: str, payload: LocationPayload):
+def update_truck_location(truck_id: str, payload: LocationPayload, _admin=Depends(require_admin_user)):
     try:
         data = create_truck_location_update(truck_id, payload.model_dump(exclude_none=True))
         return {"success": True, "message": f"Updated truck {truck_id} location", "data": data}

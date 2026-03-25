@@ -1,10 +1,11 @@
-from fastapi import APIRouter
+from fastapi import APIRouter, Depends
+from app.core.auth import require_admin_user
 from app.services.analytics import get_dashboard_summary
 
 router = APIRouter(prefix="/analytics", tags=["Analytics"])
 
 @router.get("/summary")
-def read_dashboard_summary():
+def read_dashboard_summary(_admin=Depends(require_admin_user)):
     try:
         data = get_dashboard_summary()
         return {
@@ -32,9 +33,9 @@ def read_dashboard_summary():
     }
 
 @router.get("/monthly-trends")
-def read_monthly_trends():
+def read_monthly_trends(_admin=Depends(require_admin_user)):
     return []
 
 @router.get("/waste-distribution")
-def read_waste_distribution():
+def read_waste_distribution(_admin=Depends(require_admin_user)):
     return []
