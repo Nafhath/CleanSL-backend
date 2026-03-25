@@ -28,6 +28,24 @@ def read_users_by_role(role: str, _admin=Depends(require_admin_user)):
     return rows
 
 
+@router.get("/admins")
+def read_admin_users(_admin=Depends(require_admin_user)):
+    rows = (
+        supabase.table("admin_users")
+        .select("id,email,full_name,role,is_active,last_login_at,created_at,updated_at")
+        .order("created_at", desc=True)
+        .execute()
+        .data
+        or []
+    )
+    return rows
+
+
+@router.get("/auth/me")
+def read_current_admin(admin_user=Depends(require_admin_user)):
+    return admin_user
+
+
 @router.post("/auth/login")
 def login(payload: LoginPayload):
     rows = (
