@@ -1,3 +1,5 @@
+from datetime import datetime, timezone
+
 from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel
 
@@ -57,7 +59,9 @@ def login(payload: LoginPayload):
             detail="Invalid admin credentials.",
         )
 
-    supabase.table("admin_users").update({"last_login_at": "now()"}).eq("id", admin_user["id"]).execute()
+    supabase.table("admin_users").update(
+        {"last_login_at": datetime.now(timezone.utc).isoformat()}
+    ).eq("id", admin_user["id"]).execute()
     token = create_access_token(
         subject=admin_user["id"],
         email=admin_user["email"],
