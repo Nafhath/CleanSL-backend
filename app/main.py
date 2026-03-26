@@ -9,6 +9,7 @@ from app.routers.analytics import router as analytics_router
 from app.routers.violations import router as violations_router
 from app.routers.trucks import router as trucks_router
 from app.routers.users import router as users_router
+from app.routers.mobile import router as mobile_router
 
 
 app = FastAPI(
@@ -39,3 +40,4 @@ app.include_router(analytics_router)
 app.include_router(violations_router)
 app.include_router(trucks_router)
 app.include_router(users_router)
+app.include_router(mobile_router)
