@@ -4,6 +4,8 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 class Settings(BaseSettings):
     SUPABASE_URL: str = ""
     SUPABASE_KEY: str = ""
+    HUGGINGFACE_API_TOKEN: str = ""
+    HUGGINGFACE_ASR_MODEL: str = "openai/whisper-large-v3"
     APP_AUTH_SECRET: str = ""
     ACCESS_TOKEN_EXPIRE_HOURS: int = 12
     APP_NAME: str = "CleanSL Backend"

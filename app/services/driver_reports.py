@@ -2,8 +2,10 @@ import mimetypes
 from pathlib import Path
 from uuid import uuid4
 
+import httpx
 from fastapi import HTTPException, status
 
+from app.core.config import settings
 from app.core.supabase_client import supabase
 
 
@@ -19,6 +21,60 @@ def _build_storage_path(driver_id: str | None, filename: str | None) -> str:
     extension = Path(filename or "report.wav").suffix or ".wav"
     owner = driver_id or "unassigned"
     return f"{owner}/{uuid4().hex}{extension}"
+
+
+def _transcribe_audio(file_bytes: bytes, filename: str | None) -> str:
+    token = settings.HUGGINGFACE_API_TOKEN.strip()
+    if not token:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Hugging Face transcription token is not configured on the backend.",
+        )
+
+    model = settings.HUGGINGFACE_ASR_MODEL.strip() or "openai/whisper-large-v3"
+    endpoint = f"https://api-inference.huggingface.co/models/{model}"
+    content_type = _guess_content_type(filename)
+
+    try:
+        with httpx.Client(timeout=90.0) as client:
+            response = client.post(
+                endpoint,
+                headers={
+                    "Authorization": f"Bearer {token}",
+                    "Content-Type": content_type,
+                },
+                content=file_bytes,
+            )
+    except HTTPException:
+        raise
+    except Exception:
+        return "Transcription pending."
+
+    if response.status_code in (401, 403):
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail="Hugging Face transcription token is invalid or expired.",
+        )
+
+    try:
+        response.raise_for_status()
+    except httpx.HTTPStatusError:
+        return "Transcription pending."
+
+    try:
+        payload = response.json()
+    except ValueError:
+        return "Transcription pending."
+
+    if isinstance(payload, dict):
+        text = payload.get("text")
+        if isinstance(text, str) and text.strip():
+            return text.strip()
+
+        if isinstance(payload.get("error"), str):
+            return "Transcription pending."
+
+    return "Transcription pending."
 
 
 def create_driver_report(
@@ -37,6 +93,7 @@ def create_driver_report(
             detail="Audio file is required.",
         )
 
+    transcription_text = transcription or _transcribe_audio(file_bytes, filename)
     storage_path = _build_storage_path(driver_id, filename)
     content_type = _guess_content_type(filename)
 
@@ -57,7 +114,7 @@ def create_driver_report(
         "file_name": filename or Path(storage_path).name,
         "storage_path": storage_path,
         "status": "pending",
-        "transcription": transcription or "Transcription pending.",
+        "transcription": transcription_text,
         "driver_id": driver_id,
         "task_id": task_id,
         "lane_name": lane_name,
@@ -80,7 +137,7 @@ def create_driver_report(
             supabase.table("collection_tasks").update(
                 {
                     "voice_note_url": audio_url,
-                    "voice_transcript": report_payload["transcription"],
+                    "voice_transcript": transcription_text,
                 }
             ).eq("id", task_id).execute()
         except Exception:
