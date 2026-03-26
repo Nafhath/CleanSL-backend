@@ -10,6 +10,7 @@ from app.core.supabase_client import supabase
 
 
 DRIVER_AUDIO_BUCKET = "driver-audio"
+REPORT_STATUS_VALUES = {"pending", "marked", "cancelled"}
 
 
 def _guess_content_type(filename: str | None) -> str:
@@ -48,7 +49,7 @@ def _transcribe_audio(file_bytes: bytes, filename: str | None) -> str:
     except HTTPException:
         raise
     except Exception:
-        return "Transcription pending."
+        return "Transcription request failed. Please try again."
 
     if response.status_code in (401, 403):
         raise HTTPException(
@@ -57,14 +58,25 @@ def _transcribe_audio(file_bytes: bytes, filename: str | None) -> str:
         )
 
     try:
-        response.raise_for_status()
-    except httpx.HTTPStatusError:
-        return "Transcription pending."
-
-    try:
         payload = response.json()
     except ValueError:
-        return "Transcription pending."
+        payload = None
+
+    if response.status_code == 503:
+        if isinstance(payload, dict):
+            error_message = payload.get("error")
+            if isinstance(error_message, str) and error_message.strip():
+                return f"Transcription unavailable: {error_message.strip()}"
+        return "Transcription model is still loading. Please try again shortly."
+
+    try:
+        response.raise_for_status()
+    except httpx.HTTPStatusError:
+        if isinstance(payload, dict):
+            error_message = payload.get("error")
+            if isinstance(error_message, str) and error_message.strip():
+                return f"Transcription unavailable: {error_message.strip()}"
+        return f"Transcription unavailable: provider returned HTTP {response.status_code}."
 
     if isinstance(payload, dict):
         text = payload.get("text")
@@ -72,9 +84,9 @@ def _transcribe_audio(file_bytes: bytes, filename: str | None) -> str:
             return text.strip()
 
         if isinstance(payload.get("error"), str):
-            return "Transcription pending."
+            return f"Transcription unavailable: {payload['error'].strip()}"
 
-    return "Transcription pending."
+    return "Transcription unavailable: no transcript text was returned."
 
 
 def create_driver_report(
@@ -147,7 +159,12 @@ def create_driver_report(
     return report
 
 
-def list_driver_reports(*, driver_id: str | None = None, limit: int = 50):
+def list_driver_reports(
+    *,
+    driver_id: str | None = None,
+    status: str | None = None,
+    limit: int = 50,
+):
     query = (
         supabase.table("driver_voice_reports")
         .select("*")
@@ -156,6 +173,8 @@ def list_driver_reports(*, driver_id: str | None = None, limit: int = 50):
     )
     if driver_id:
         query = query.eq("driver_id", driver_id)
+    if status:
+        query = query.eq("status", status)
 
     try:
         rows = query.execute().data or []
@@ -174,3 +193,42 @@ def list_driver_reports(*, driver_id: str | None = None, limit: int = 50):
         )
 
     return rows
+
+
+def update_driver_report_status(*, report_id: str, status_value: str):
+    normalized_status = status_value.strip().lower()
+    if normalized_status not in REPORT_STATUS_VALUES:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Unsupported report status. Use one of: {', '.join(sorted(REPORT_STATUS_VALUES))}.",
+        )
+
+    try:
+        rows = (
+            supabase.table("driver_voice_reports")
+            .update({"status": normalized_status})
+            .eq("id", report_id)
+            .execute()
+            .data
+            or []
+        )
+    except Exception as exc:
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail="Failed to update driver report status.",
+        ) from exc
+
+    if not rows:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Driver report not found.",
+        )
+
+    row = rows[0]
+    storage_path = row.get("storage_path")
+    row["audio_url"] = (
+        supabase.storage.from_(DRIVER_AUDIO_BUCKET).get_public_url(storage_path)
+        if storage_path
+        else None
+    )
+    return row

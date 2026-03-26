@@ -1,11 +1,21 @@
 from typing import Optional
 
-from fastapi import APIRouter, File, Form, Query, UploadFile
+from fastapi import APIRouter, Depends, File, Form, Query, UploadFile
+from pydantic import BaseModel
 
-from app.services.driver_reports import create_driver_report, list_driver_reports
+from app.core.auth import require_admin_user
+from app.services.driver_reports import (
+    create_driver_report,
+    list_driver_reports,
+    update_driver_report_status,
+)
 
 
 router = APIRouter(prefix="/mobile", tags=["Mobile"])
+
+
+class DriverReportStatusPayload(BaseModel):
+    status: str
 
 
 @router.get("/health")
@@ -37,6 +47,25 @@ async def upload_driver_report(
 @router.get("/driver/reports")
 def read_driver_reports(
     driver_id: Optional[str] = Query(default=None),
+    status: Optional[str] = Query(default=None),
     limit: int = Query(default=50, ge=1, le=200),
 ):
-    return list_driver_reports(driver_id=driver_id, limit=limit)
+    return list_driver_reports(driver_id=driver_id, status=status, limit=limit)
+
+
+@router.get("/admin/driver-reports")
+def read_admin_driver_reports(
+    status: Optional[str] = Query(default=None),
+    limit: int = Query(default=100, ge=1, le=500),
+    _admin=Depends(require_admin_user),
+):
+    return list_driver_reports(status=status, limit=limit)
+
+
+@router.patch("/admin/driver-reports/{report_id}")
+def patch_driver_report_status(
+    report_id: str,
+    payload: DriverReportStatusPayload,
+    _admin=Depends(require_admin_user),
+):
+    return update_driver_report_status(report_id=report_id, status_value=payload.status)
