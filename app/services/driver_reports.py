@@ -1,4 +1,5 @@
 import mimetypes
+import logging
 from pathlib import Path
 from uuid import uuid4
 
@@ -11,6 +12,7 @@ from app.core.supabase_client import supabase
 
 DRIVER_AUDIO_BUCKET = "driver-audio"
 REPORT_STATUS_VALUES = {"pending", "marked", "cancelled"}
+logger = logging.getLogger(__name__)
 
 
 def _guess_content_type(filename: str | None) -> str:
@@ -48,10 +50,16 @@ def _transcribe_audio(file_bytes: bytes, filename: str | None) -> str:
             )
     except HTTPException:
         raise
-    except Exception:
+    except Exception as exc:
+        logger.exception("Hugging Face transcription request failed: %s", exc)
         return "Transcription request failed. Please try again."
 
     if response.status_code in (401, 403):
+        logger.error(
+            "Hugging Face transcription auth failed with status %s for model %s",
+            response.status_code,
+            model,
+        )
         raise HTTPException(
             status_code=status.HTTP_502_BAD_GATEWAY,
             detail="Hugging Face transcription token is invalid or expired.",
@@ -63,6 +71,11 @@ def _transcribe_audio(file_bytes: bytes, filename: str | None) -> str:
         payload = None
 
     if response.status_code == 503:
+        logger.warning(
+            "Hugging Face transcription model unavailable (503) for model %s: %s",
+            model,
+            payload,
+        )
         if isinstance(payload, dict):
             error_message = payload.get("error")
             if isinstance(error_message, str) and error_message.strip():
@@ -71,7 +84,13 @@ def _transcribe_audio(file_bytes: bytes, filename: str | None) -> str:
 
     try:
         response.raise_for_status()
-    except httpx.HTTPStatusError:
+    except httpx.HTTPStatusError as exc:
+        logger.warning(
+            "Hugging Face transcription returned HTTP %s for model %s: %s",
+            response.status_code,
+            model,
+            exc,
+        )
         if isinstance(payload, dict):
             error_message = payload.get("error")
             if isinstance(error_message, str) and error_message.strip():
@@ -81,11 +100,22 @@ def _transcribe_audio(file_bytes: bytes, filename: str | None) -> str:
     if isinstance(payload, dict):
         text = payload.get("text")
         if isinstance(text, str) and text.strip():
+            logger.info("Hugging Face transcription succeeded for model %s", model)
             return text.strip()
 
         if isinstance(payload.get("error"), str):
+            logger.warning(
+                "Hugging Face transcription payload returned error for model %s: %s",
+                model,
+                payload.get("error"),
+            )
             return f"Transcription unavailable: {payload['error'].strip()}"
 
+    logger.warning(
+        "Hugging Face transcription returned no transcript text for model %s. Payload type: %s",
+        model,
+        type(payload).__name__,
+    )
     return "Transcription unavailable: no transcript text was returned."
 
 
