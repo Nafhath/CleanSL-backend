@@ -1,10 +1,12 @@
 import mimetypes
 import logging
+import time
 from pathlib import Path
 from uuid import uuid4
 
-import httpx
 from fastapi import HTTPException, status
+import requests
+from requests.exceptions import RequestException
 
 from app.core.config import settings
 from app.core.supabase_client import supabase
@@ -13,6 +15,7 @@ from app.core.supabase_client import supabase
 DRIVER_AUDIO_BUCKET = "driver-audio"
 REPORT_STATUS_VALUES = {"pending", "marked", "cancelled"}
 logger = logging.getLogger(__name__)
+TRANSCRIPTION_RETRY_COUNT = 3
 
 
 def _guess_content_type(filename: str | None) -> str:
@@ -38,20 +41,34 @@ def _transcribe_audio(file_bytes: bytes, filename: str | None) -> str:
     endpoint = f"https://api-inference.huggingface.co/models/{model}"
     content_type = _guess_content_type(filename)
 
-    try:
-        with httpx.Client(timeout=90.0) as client:
-            response = client.post(
+    response = None
+    last_exception = None
+    for attempt in range(1, TRANSCRIPTION_RETRY_COUNT + 1):
+        try:
+            response = requests.post(
                 endpoint,
                 headers={
                     "Authorization": f"Bearer {token}",
                     "Content-Type": content_type,
                 },
-                content=file_bytes,
+                data=file_bytes,
+                timeout=90,
             )
-    except HTTPException:
-        raise
-    except Exception as exc:
-        logger.exception("Hugging Face transcription request failed: %s", exc)
+            break
+        except RequestException as exc:
+            last_exception = exc
+            logger.warning(
+                "Hugging Face transcription request attempt %s/%s failed for model %s: %s",
+                attempt,
+                TRANSCRIPTION_RETRY_COUNT,
+                model,
+                exc,
+            )
+            if attempt < TRANSCRIPTION_RETRY_COUNT:
+                time.sleep(attempt)
+
+    if response is None:
+        logger.exception("Hugging Face transcription request failed after retries: %s", last_exception)
         return "Transcription request failed. Please try again."
 
     if response.status_code in (401, 403):
@@ -84,7 +101,7 @@ def _transcribe_audio(file_bytes: bytes, filename: str | None) -> str:
 
     try:
         response.raise_for_status()
-    except httpx.HTTPStatusError as exc:
+    except requests.HTTPError as exc:
         logger.warning(
             "Hugging Face transcription returned HTTP %s for model %s: %s",
             response.status_code,
